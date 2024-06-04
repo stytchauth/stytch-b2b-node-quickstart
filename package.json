@@ -1,0 +1,14 @@
+{
+  "name": "node-js-magic-links",
+  "version": "0.0.1",
+  "description": "Example B2B Stytch App",
+  "scripts": {
+    "server": "node --env-file=.env server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "stytch": "^10.17.0"
+  }
+}
