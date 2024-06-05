@@ -1,0 +1,31 @@
+<html lang="en">
+<body>
+<div>
+    <h1>Success</h1>
+    <h3>You used <%= method %> Magic Links to sign in.</h3>
+
+    <% if (method === 'Discovery') { %>
+        <p>
+            Authenticating using Discovery Magic Links yields an intermediate session token.
+            This can be used to request all Organizations associated with the user and, in
+            subsequent requests, to authenticate the user with a specific organization.
+        </p>
+        <p>
+            Click below to return Home.
+        </p>
+    <% } else { %>
+        <p>
+            You have authenticated with a specific Organization and received a JWT which has
+            been stored in your browser.
+        </p>
+        <p>
+            You can see this by attempting to return to the Home Page by clicking the button below.
+            The server will read your JWT and redirect you to a "logged in" page.
+        </p>
+    <% } %>
+    <button onclick="location.href = 'http://localhost:3000/'">
+        Home
+    </button>
+</div>
+</body>
+</html>

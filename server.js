@@ -1,3 +1,4 @@
+const bodyParser = require('body-parser');
 const express = require('express');
 const session = require('express-session');
 const stytch = require('stytch');
@@ -9,13 +10,18 @@ const stytch = require('stytch');
 // Instantiate the Express server.
 const app = express();
 
-// Parse request body JSON.
-app.use(express.json());
+// Use EJS for HTML templating.
+app.set('view engine', 'ejs');
+
+// Handle form submission data.
+app.use(bodyParser.urlencoded({extended: true}));
+
 // Session management.
 app.use(session({
     resave: true,
     saveUninitialized: false,
     secret: 'session-signing-secret',
+    cookie: {maxAge: 60000}
 }));
 
 // Retrieve project id and secret.
@@ -32,6 +38,30 @@ const client = new stytch.B2BClient({
 });
 
 //
+// Routes.
+//
+
+/**
+ * Renders the index page.
+ */
+app.get('/', async (req, res) => {
+    // Check for an existing session token in the browser.
+    // If one is found, and it corresponds to an active session,
+    // redirect the user.
+    if (req.session['stytch-session']) {
+        const sessionResp = await client.sessions.authenticate({
+            session_jwt: req.session['stytch-session'],
+        });
+        if (sessionResp.status_code === 200) {
+            res.render('already-logged-in');
+            return;
+        }
+    }
+
+    res.render('index');
+});
+
+//
 // Magic Links server routes.
 //
 
@@ -45,6 +75,19 @@ const client = new stytch.B2BClient({
  * To understand the difference between these, see: https://stytch.com/docs/b2b/guides/login-flows.
  */
 app.post('/magic-links/login-signup', async (req, res) => {
+    // Check for an existing session token in the browser.
+    // If one is found, and it corresponds to an active session,
+    // redirect the user.
+    if (req.session['stytch-session']) {
+        const sessionResp = await client.sessions.authenticate({
+            session_jwt: req.session['stytch-session'],
+        });
+        if (sessionResp.status_code === 200) {
+            res.render('already-logged-in');
+            return;
+        }
+    }
+
     const email = req.body.email;
     if (!email) {
         res.status(400).send('Email is required');
@@ -68,10 +111,12 @@ app.post('/magic-links/login-signup', async (req, res) => {
         }
 
         console.log(`Success - Organization Magic Link sent to ${email}`);
-        res.status(200).send();
+        res.render('email-sent');
     } else {
         // If no organization id is present then perform a Discovery Login.
-        const resp = await client.magicLinks.email.discovery.send({email_address: email});
+        const resp = await client.magicLinks.email.discovery.send({
+            email_address: email
+        });
 
         // Handle error response
         if (resp.status_code !== 200) {
@@ -81,7 +126,7 @@ app.post('/magic-links/login-signup', async (req, res) => {
         }
 
         console.log(`Success - Discovery Magic Link sent to ${email}`);
-        res.status(200).send();
+        res.render('email-sent');
     }
 });
 
@@ -97,7 +142,6 @@ app.post('/magic-links/login-signup', async (req, res) => {
 app.get('/authenticate', async (req, res) => {
     const tokenType = req.query.stytch_token_type;
     const token = req.query.token;
-
     if (!token) {
         console.error('Token not present in request query string');
         res.status(400).send('Token is required');
@@ -120,8 +164,7 @@ app.get('/authenticate', async (req, res) => {
         // On success an IST is available and can be stored as a cookie
         // or other mechanism for subsequent requests for exchange.
         console.log('Success - intermediate session token retrieved');
-        req.session.ist = resp.intermediate_session_token;
-        res.status(200).send();
+        res.render('success', {method: 'Discovery'});
         return;
     }
 
@@ -142,9 +185,7 @@ app.get('/authenticate', async (req, res) => {
         // This can be stored on the session for re-use.
         console.log('Success - JWT retrieved');
         req.session['stytch-session'] = resp.session_jwt;
-        res.status(200).json({
-            member: resp.member,
-        });
+        res.render('success', {method: 'Organization'});
         return;
     }
 
@@ -153,10 +194,12 @@ app.get('/authenticate', async (req, res) => {
 });
 
 // Start the server.
+console.warn('\x1b[31m%s\x1b[0m', 'WARNING: FOR DEVELOPMENT PURPOSES ONLY, NOT INTENDED FOR PRODUCTION USE');
+
 const port = process.env.PORT
     ? parseInt(process.env.PORT)
     : 3000;
 
 app.listen(port, () => {
-    console.log(`Server starting on port ${port}...`);
+    console.log(`Server starting on: http://localhost:${port}`);
 });
