@@ -18,7 +18,7 @@
     <% } %>
     <div class="button-container">
         <% for (const organization of discoveredOrganizations) { %>
-            <button onclick="selectOrg(<%= organization.organizationId %>)">
+            <button class="btn-select-org" data-org-id="<%= organization.organizationId %>">
                 <%= organization.organizationName %>
             </button>
         <% } %>
@@ -27,10 +27,11 @@
                 <hr class="line"/>
             </div>
         <% } %>
-        <button id="btnCreateOrg">
-            Create New Organization
-        </button>
-
+        <% if (isLogin) { %>
+            <button id="btnCreateOrg">
+                Create New Organization
+            </button>
+        <% } %>
     </div>
     <div id="orgModal" class="modal">
         <!-- Modal content -->
@@ -50,7 +51,15 @@
     </div>
     <script>
         function selectOrg(organizationId) {
+            console.log('Select org fn called');
             window.location.href = `/exchange/${organizationId}`;
+        }
+
+        const orgButtons = document.getElementsByClassName("btn-select-org");
+        for (const button of orgButtons) {
+            button.onclick = function () {
+                selectOrg(button.dataset.orgId);
+            }
         }
 
         // Get the modal
@@ -63,8 +72,10 @@
         const span = document.getElementsByClassName("close")[0];
 
         // When the user clicks the button, open the modal
-        btn.onclick = function () {
-            modal.style.display = "block";
+        if (btn) {
+            btn.onclick = function () {
+                modal.style.display = "block";
+            }
         }
 
         // When the user clicks on <span> (x), close the modal

@@ -331,9 +331,9 @@ app.get('/switch-orgs', async (req, res) => {
     }
 
     res.render('discoveredOrganizations', {
+        isLogin: false,
         discoveredOrganizations: orgs,
         email: resp.email_address,
-        isLogin: false,
     });
 });
 
