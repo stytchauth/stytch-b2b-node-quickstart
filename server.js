@@ -13,6 +13,8 @@ const app = express();
 // Use EJS for HTML templating.
 app.set('view engine', 'ejs');
 
+app.use(express.static(__dirname + "/static"));
+
 // Handle form submission data.
 app.use(bodyParser.urlencoded({extended: true}));
 
@@ -38,6 +40,41 @@ const client = new stytch.B2BClient({
 });
 
 //
+// Helper Methods.
+//
+
+const SessionKey = 'stytch-session-token';
+
+/**
+ * Retrieves the authenticated member and organization from the session, if present.
+ * @param req Express request.
+ * @returns {Promise<{organization: Organization, member: Member}|null>}
+ */
+async function getAuthenticatedMemberAndOrg(req) {
+    const session = req.session[SessionKey];
+    if (!session) {
+        return null;
+    }
+
+    const resp = await client.sessions.authenticate({session_token: session});
+    if (resp.status_code !== 200) {
+        console.error('Invalid session found');
+        invalidateSession(req);
+        return null;
+    }
+
+    req.session[SessionKey] = resp.session_token;
+    return {
+        member: resp.member,
+        organization: resp.organization,
+    };
+}
+
+function invalidateSession(req) {
+    req.session[SessionKey] = undefined;
+}
+
+//
 // Routes.
 //
 
@@ -48,17 +85,20 @@ app.get('/', async (req, res) => {
     // Check for an existing session token in the browser.
     // If one is found, and it corresponds to an active session,
     // redirect the user.
-    if (req.session['stytch-session']) {
-        const sessionResp = await client.sessions.authenticate({
-            session_jwt: req.session['stytch-session'],
+    const session = await getAuthenticatedMemberAndOrg(req);
+    if (session && session.member && session.organization) {
+        res.render('loggedIn', {
+            member: session.member,
+            organization: session.organization,
         });
-        if (sessionResp.status_code === 200) {
-            res.render('already-logged-in');
-            return;
-        }
+        return;
     }
 
-    res.render('index');
+    res.render('discoveryLogin');
+});
+
+app.get('/logout', (req, res) => {
+    res.render('discoveryLogin');
 });
 
 //
@@ -74,20 +114,7 @@ app.get('/', async (req, res) => {
  *
  * To understand the difference between these, see: https://stytch.com/docs/b2b/guides/login-flows.
  */
-app.post('/magic-links/login-signup', async (req, res) => {
-    // Check for an existing session token in the browser.
-    // If one is found, and it corresponds to an active session,
-    // redirect the user.
-    if (req.session['stytch-session']) {
-        const sessionResp = await client.sessions.authenticate({
-            session_jwt: req.session['stytch-session'],
-        });
-        if (sessionResp.status_code === 200) {
-            res.render('already-logged-in');
-            return;
-        }
-    }
-
+app.post('/send-magic-link', async (req, res) => {
     const email = req.body.email;
     if (!email) {
         res.status(400).send('Email is required');
@@ -95,39 +122,29 @@ app.post('/magic-links/login-signup', async (req, res) => {
     }
 
     const organizationId = req.body.organizationId;
-    if (organizationId) {
-        // If an organization id is present in the request body perform
-        // an Organization login.
-        const resp = await client.magicLinks.email.loginOrSignup({
-            email_address: email,
-            organization_id: organizationId,
-        });
-
-        // Handle error response.
-        if (resp.status_code !== 200) {
-            console.error(`Error sending Organization Magic Link, resp: '${JSON.stringify(resp)}'`);
-            res.status(500).send();
-            return;
-        }
-
-        console.log(`Success - Organization Magic Link sent to ${email}`);
-        res.render('email-sent');
-    } else {
-        // If no organization id is present then perform a Discovery Login.
+    if (!organizationId) {
         const resp = await client.magicLinks.email.discovery.send({
-            email_address: email
+            email_address: email,
         });
-
-        // Handle error response
         if (resp.status_code !== 200) {
-            console.error(`Error sending Discovery Magic Link, resp: '${JSON.stringify(resp)}'`);
-            res.status(500).send();
+            console.error(JSON.stringify(resp, null, 2));
+            res.status(500).send('Error requesting magic link');
             return;
         }
-
-        console.log(`Success - Discovery Magic Link sent to ${email}`);
-        res.render('email-sent');
+        res.render('emailSent');
+        return;
     }
+
+    const resp = await client.magicLinks.email.loginOrSignup({
+        email_address: email,
+        organization_id: organizationId,
+    });
+    if (resp.status_code !== 200) {
+        console.error(JSON.stringify(resp, null, 2));
+        res.status(500).send('Error requesting magic link');
+        return;
+    }
+    res.render('emailSent');
 });
 
 /**
@@ -153,18 +170,26 @@ app.get('/authenticate', async (req, res) => {
         const resp = await client.magicLinks.discovery.authenticate({
             discovery_magic_links_token: token,
         });
-
-        // Handle error.
         if (resp.status_code !== 200) {
             console.error('Authentication error')
             res.status(500).send();
             return;
         }
 
-        // On success an IST is available and can be stored as a cookie
-        // or other mechanism for subsequent requests for exchange.
-        console.log('Success - intermediate session token retrieved');
-        res.render('success', {method: 'Discovery'});
+        req.session.ist = resp.intermediate_session_token;
+        const orgs = [];
+        for (const org of resp.discovered_organizations) {
+            orgs.push({
+                organizationId: org.organization.organization_id,
+                organizationName: org.organization.organization_name,
+            });
+        }
+
+        res.render('discoveredOrganizations', {
+            isLogin: true,
+            email: resp.email_address,
+            discoveredOrganizations: orgs,
+        });
         return;
     }
 
@@ -173,19 +198,14 @@ app.get('/authenticate', async (req, res) => {
         const resp = await client.magicLinks.authenticate({
             magic_links_token: token,
         });
-
-        // Handle error.
         if (resp.status_code !== 200) {
             console.error('Authentication error')
             res.status(500).send();
             return;
         }
 
-        // On success a JWT is available for the logged in member.
-        // This can be stored on the session for re-use.
-        console.log('Success - JWT retrieved');
-        req.session['stytch-session'] = resp.session_jwt;
-        res.render('success', {method: 'Organization'});
+        req.session[SessionKey] = resp.session_token;
+        res.redirect('/');
         return;
     }
 
