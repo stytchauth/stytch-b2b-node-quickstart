@@ -19,7 +19,7 @@
                 <p> JIT Provisioning: NOT_ALLOWED </p>
             <% } %>
         <% } else { %>
-            <p>JIT Provisioning Allowed for Domains: {{ organization.email_allowed_domains}} </p>
+            <p>JIT Provisioning Allowed for Domains: <%= organization.email_allowed_domains %> </p>
         <% } %>
         <h2>Profile Info</h2>
         <p>Email: <%= member.email_address %></p>
@@ -29,16 +29,16 @@
     <button type="submit" onclick="switchOrgs()">Switch Organizations</button>
     <script>
         function logout() {
-            // Redirect to the Flask logout route
+            // Redirect to the logout route
             window.location.href = `/logout`;
         }
 
         function enableJIT() {
-            window.location.href = `/enable_jit`;
+            window.location.href = `/enable-jit`;
         }
 
         function switchOrgs() {
-            window.location.href = `/switch_orgs`;
+            window.location.href = `/switch-orgs`;
         }
     </script>
 </div>

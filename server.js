@@ -43,7 +43,8 @@ const client = new stytch.B2BClient({
 // Helper Methods.
 //
 
-const SessionKey = 'stytch-session-token';
+const StytchSessionKey = 'stytch-session-token';
+const StytchIstKey = 'ist';
 
 /**
  * Retrieves the authenticated member and organization from the session, if present.
@@ -51,7 +52,7 @@ const SessionKey = 'stytch-session-token';
  * @returns {Promise<{organization: Organization, member: Member}|null>}
  */
 async function getAuthenticatedMemberAndOrg(req) {
-    const session = req.session[SessionKey];
+    const session = req.session[StytchSessionKey];
     if (!session) {
         return null;
     }
@@ -63,15 +64,21 @@ async function getAuthenticatedMemberAndOrg(req) {
         return null;
     }
 
-    req.session[SessionKey] = resp.session_token;
+    resp.organization.organization_slug
+
+    req.session[StytchSessionKey] = resp.session_token;
     return {
         member: resp.member,
         organization: resp.organization,
     };
 }
 
+/**
+ * Destroys any existing sessions.
+ * @param req Express request.
+ */
 function invalidateSession(req) {
-    req.session[SessionKey] = undefined;
+    req.session[StytchSessionKey] = undefined;
 }
 
 //
@@ -176,7 +183,7 @@ app.get('/authenticate', async (req, res) => {
             return;
         }
 
-        req.session.ist = resp.intermediate_session_token;
+        req.session[StytchIstKey] = resp.intermediate_session_token;
         const orgs = [];
         for (const org of resp.discovered_organizations) {
             orgs.push({
@@ -204,13 +211,224 @@ app.get('/authenticate', async (req, res) => {
             return;
         }
 
-        req.session[SessionKey] = resp.session_token;
+        req.session[StytchSessionKey] = resp.session_token;
         res.redirect('/');
         return;
     }
 
     console.error(`Unrecognized token type: '${tokenType}'`);
     res.status(400).send();
+});
+
+/**
+ * Creates a new Organization after Discovery authentication.
+ * Exchanges an IST returned from a discovery.authenticate() call, allowing
+ * Stytch to enforce that users are properly authenticated and verified
+ * prior to creating an Organization.
+ */
+app.post('/create-organization', async (req, res) => {
+    const ist = req.session[StytchIstKey];
+    if (!ist) {
+        console.error('IST required to create an Organization');
+        res.status(400).send();
+        return;
+    }
+
+    const orgName = (req.body.orgName || '').trim();
+    const orgSlug = (req.body.orgSlug || '').replaceAll(' ', '');
+    const resp = await client.discovery.organizations.create({
+        intermediate_session_token: ist,
+        organization_name: orgName,
+        organization_slug: orgSlug,
+    });
+    if (resp.status_code !== 200) {
+        console.error(`Error creating Organization: '${JSON.stringify(resp, null, 2)}'`);
+        res.status(500).send();
+        return;
+    }
+
+    req.session[StytchIstKey] = undefined;
+    req.session[StytchSessionKey] = resp.session_token;
+    res.redirect('/');
+});
+
+/**
+ * After Discovery, users can opt to log into an existing Organization
+ * that they belong to, or are eligible to join by Email Domain JIT Provision, or a
+ * pending invite.
+ * You will exchange the IST returned from the discovery.authenticate() method call
+ * to complete the login process.
+ */
+app.get('/exchange/:organizationId', async (req, res) => {
+    const ist = req.session[StytchIstKey];
+    const organizationId = req.params.organizationId;
+
+    if (ist) {
+        const resp = await client.discovery.intermediateSessions.exchange({
+            intermediate_session_token: ist,
+            organization_id: organizationId,
+        });
+        if (resp.status_code !== 200) {
+            console.error(`Error exchanging IST into Organization: ${JSON.stringify(resp, null, 2)}`);
+            res.status(500).send();
+        }
+
+        req.session[StytchIstKey] = undefined;
+        req.session[StytchSessionKey] = resp.session_token;
+        res.redirect('/');
+        return;
+    }
+
+    const session = req.session[StytchSessionKey];
+    if (!session) {
+        console.error('Either IST or session token is required');
+        res.status(400).send();
+    }
+
+    const resp = await client.sessions.exchange({
+        organization_id: organizationId,
+        session_token: session,
+    });
+    if (resp.status_code !== 200) {
+        console.error(`Error exchanging session token into Organization: ${JSON.stringify(resp, null, 2)}`);
+        res.status(500).send();
+        return;
+    }
+
+    req.session[StytchSessionKey] = resp.session_token;
+    res.redirect('/');
+});
+
+/**
+ * Example of Organization Switching post-authentication.
+ * This allows a logged in Member of one Organization to "exchange" their
+ * session for a session on another Organization that they belong to,
+ * all while ensuring that each Organization's authentication requirements are honored
+ * and respecting data isolation between tenants.
+ */
+app.get('/switch-orgs', async (req, res) => {
+    const session = req.session[StytchSessionKey];
+    if (!session) {
+        res.redirect('/');
+        return;
+    }
+
+    const resp = await client.discovery.organizations.list({
+        session_token: session,
+    });
+    if (resp.status_code !== 200) {
+        console.error(`Error listing discovered Organizations: ${JSON.stringify(resp, null, 2)}`);
+        res.status(500).send();
+        return;
+    }
+
+    const orgs = [];
+    for (const org of resp.discovered_organizations) {
+        orgs.push({
+            organizationId: org.organization.organization_id,
+            organizationName: org.organization.organization_name,
+        });
+    }
+
+    res.render('discoveredOrganizations', {
+        discoveredOrganizations: orgs,
+        email: resp.email_address,
+        isLogin: false,
+    });
+});
+
+/**
+ * Performs an Organization log in (if logged out), otherwise
+ * performs a Session Exchange (if logged in).
+ */
+app.get('/orgs/:organizationSlug', async (req, res) => {
+    const organizationSlug = req.params.organizationSlug;
+    const memberAndOrg = await getAuthenticatedMemberAndOrg(req);
+
+    if (memberAndOrg?.member && memberAndOrg?.organization) {
+        if (organizationSlug === memberAndOrg.organization.organization_slug) {
+            // User is currently logged into this Organization.
+            res.redirect('/');
+            return;
+        }
+
+        const resp = await client.discovery.organizations.list({
+            session_token: req.session[StytchSessionKey],
+        });
+        if (resp.status_code !== 200) {
+            console.error(`Error listing discovered Organization: ${JSON.stringify(resp, null, 2)}`);
+            res.status(500).send();
+            return;
+        }
+
+        for (const org of resp.discovered_organizations) {
+            if (org.organization.organization_slug === organizationSlug) {
+                res.redirect(`/exchange/${org.organization.organization_id}`);
+                return;
+            }
+        }
+    }
+
+    const resp = await client.organizations.search({
+        query: {
+            operator: 'AND',
+            operands: [
+                {
+                    filter_name: 'organization_slugs',
+                    filter_value: [organizationSlug],
+                }
+            ],
+        },
+    });
+    if (resp.status_code !== 200 || !resp.organizations?.length) {
+        console.error(`Error fetching org by slug: ${JSON.stringify(resp, null, 2)}`);
+        res.status(500).send();
+        return;
+    }
+
+    res.render('organizationLogin', {
+        organizationId: resp.organizations[0].organization_id,
+        organizationName: resp.organizations[0].organization_name,
+    });
+});
+
+/**
+ * Performs authorized updating of Organization Settings + Just-in-Time (JIT) Provisioning
+ * Once enabled:
+ * 1. Logout
+ * 2. Initiate magic link for an email alias (e.g. ada+1@stytch.com)
+ * 3. After clicking the Magic Link you'll see the option to join the organization with JIT enabled
+ * Use your work email address to test this, as JIT cannot be enabled for common email domains.
+ */
+app.get('/enable-jit', async (req, res) => {
+    const memberAndOrg = await getAuthenticatedMemberAndOrg(req);
+    if (!memberAndOrg?.member || !memberAndOrg.organization) {
+        res.redirect('/');
+        return;
+    }
+    const {member, organization} = memberAndOrg;
+    const domain = member.email_address.split('@')[1];
+
+    // When the session_token or session_jwt are passed into method_options
+    // Stytch will do AuthZ enforcement based on the Session Member's RBAC permissions
+    // before honoring the request.
+    const resp = await client.organizations.update(
+        {
+            organization_id: organization.organization_id,
+            email_jit_provisioning: 'RESTRICTED',
+            email_allowed_domains: [domain],
+        },
+        {
+            authorization: req.session[StytchSessionKey]
+        },
+    );
+    if (resp.status_code !== 200) {
+        console.error(`Error updating Organization JIT Provisioning settings: ${JSON.stringify(resp, null, 2)}`);
+        res.status(500).send();
+        return;
+    }
+
+    res.redirect('/');
 });
 
 // Start the server.

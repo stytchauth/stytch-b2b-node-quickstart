@@ -18,8 +18,7 @@
     <% } %>
     <div class="button-container">
         <% for (const organization of discoveredOrganizations) { %>
-            <!--            <button onclick="selectOrg(<%= organization.organizationId %>)">-->
-            <button>
+            <button onclick="selectOrg(<%= organization.organizationId %>)">
                 <%= organization.organizationName %>
             </button>
         <% } %>
@@ -28,25 +27,23 @@
                 <hr class="line"/>
             </div>
         <% } %>
-        <% if (isLogin) { %>
-            <button id="btnCreateOrg">
-                Create New Organization
-            </button>
-        <% } %>
+        <button id="btnCreateOrg">
+            Create New Organization
+        </button>
 
     </div>
     <div id="orgModal" class="modal">
         <!-- Modal content -->
         <div class="modal-content">
             <span class="close">&times;</span>
-            <form action="/create_organization" method="POST">
+            <form action="/create-organization" method="POST">
                 <h2>Create Organization</h2>
-                <label for="org_name"><strong>Organization Name:</strong></label>
-                <input type="text" id="org_name" name="org_name" placeholder="Olive Garden" required><br>
-                <label for="org_slug"><strong>Organization Slug:</strong></label>
-                <p>Unique URL slug consisisting of alphanumeric characters and the following reserved characters: - . _
+                <label for="orgName"><strong>Organization Name:</strong></label>
+                <input type="text" id="orgName" name="orgName" placeholder="Olive Garden" required><br>
+                <label for="orgSlug"><strong>Organization Slug:</strong></label>
+                <p>Unique URL slug consisting of alphanumeric characters and the following reserved characters: - . _
                     ~</p>
-                <input type="text" id="org_slug" name="org_slug" placeholder="olive-garden" required><br>
+                <input type="text" id="orgSlug" name="orgSlug" placeholder="olive-garden" required><br>
                 <button type="submit">Submit</button>
             </form>
         </div>
