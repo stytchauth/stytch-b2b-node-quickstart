@@ -12,7 +12,7 @@ authentication. This project includes:
 
 - Node `^20.14.0` (an `.nvmrc` file is present if you use NVM).
 - Created an account with Stytch and have access to the Stytch Dashboard.
-    - The Project ID and Secret associated with your Stytch Project (accessible from the dashboard).
+  - The Project ID and Secret associated with your Stytch Project (accessible from the dashboard).
 
 #### 1. Clone the repository.
 
@@ -56,4 +56,3 @@ Join the discussion, ask questions, and suggest new features in our ​[Slack co
 #### :question: Need support?
 
 Check out the [Stytch Forum](https://forum.stytch.com/) or email us at [support@stytch.com](mailto:support@stytch.com).
-
