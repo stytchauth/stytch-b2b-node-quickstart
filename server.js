@@ -66,8 +66,6 @@ async function getAuthenticatedMemberAndOrg(req) {
     return null;
   }
 
-  resp.organization.organization_slug;
-
   req.session[StytchSessionKey] = resp.session_token;
   return {
     member: resp.member,
@@ -174,8 +172,11 @@ app.get('/authenticate', async (req, res) => {
     return;
   }
 
-  // Handle Discovery authentication.
+  let authenticatedEmail = '';
+  let responseDiscoveredOrganizations = [];
+
   if (tokenType === 'discovery') {
+    // Handle Discovery authentication.
     const resp = await client.magicLinks.discovery.authenticate({
       discovery_magic_links_token: token,
     });
@@ -186,24 +187,10 @@ app.get('/authenticate', async (req, res) => {
     }
 
     req.session[StytchIstKey] = resp.intermediate_session_token;
-    const orgs = [];
-    for (const org of resp.discovered_organizations) {
-      orgs.push({
-        organizationId: org.organization.organization_id,
-        organizationName: org.organization.organization_name,
-      });
-    }
-
-    res.render('discoveredOrganizations', {
-      isLogin: true,
-      email: resp.email_address,
-      discoveredOrganizations: orgs,
-    });
-    return;
-  }
-
-  // Handle Discovery OAuth authentication.
-  if (tokenType === 'discovery_oauth') {
+    responseDiscoveredOrganizations = resp.discovered_organizations;
+    authenticatedEmail = resp.email_address;
+  } else if (tokenType === 'discovery_oauth') {
+    // Handle Discovery OAuth authentication.
     const resp = await client.oauth.discovery.authenticate({
       discovery_oauth_token: token,
     });
@@ -214,39 +201,26 @@ app.get('/authenticate', async (req, res) => {
     }
 
     req.session[StytchSessionKey] = resp.session_token;
-    const orgs = [];
-    for (const org of resp.discovered_organizations) {
-      orgs.push({
-        organizationId: org.organization.organization_id,
-        organizationName: org.organization.organization_name,
-      });
-    }
-    res.render('discoveredOrganizations', {
-      isLogin: true,
-      email: resp.email_address,
-      discoveredOrganizations: orgs,
-    });
+    responseDiscoveredOrganizations = resp.discovered_organizations;
+    authenticatedEmail = resp.email_address;
+  } else {
+    console.error(`Unrecognized token type: '${tokenType}'`);
+    res.status(400).send();
     return;
   }
 
-  // Handle Organization authentication.
-  if (tokenType === 'multi_tenant_magic_links') {
-    const resp = await client.magicLinks.authenticate({
-      magic_links_token: token,
+  const orgs = [];
+  for (const org of responseDiscoveredOrganizations) {
+    orgs.push({
+      organizationId: org.organization.organization_id,
+      organizationName: org.organization.organization_name,
     });
-    if (resp.status_code !== 200) {
-      console.error('Authentication error');
-      res.status(500).send();
-      return;
-    }
-
-    req.session[StytchSessionKey] = resp.session_token;
-    res.redirect('/');
-    return;
   }
-
-  console.error(`Unrecognized token type: '${tokenType}'`);
-  res.status(400).send();
+  res.render('discoveredOrganizations', {
+    isLogin: true,
+    email: authenticatedEmail,
+    discoveredOrganizations: orgs,
+  });
 });
 
 /**
@@ -419,30 +393,6 @@ app.get('/orgs/:organizationSlug', async (req, res) => {
       }
     }
   }
-
-  const resp = await client.organizations.search({
-    query: {
-      operator: 'AND',
-      operands: [
-        {
-          filter_name: 'organization_slugs',
-          filter_value: [organizationSlug],
-        },
-      ],
-    },
-  });
-  if (resp.status_code !== 200 || !resp.organizations?.length) {
-    console.error(
-      `Error fetching org by slug: ${JSON.stringify(resp, null, 2)}`
-    );
-    res.status(500).send();
-    return;
-  }
-
-  res.render('organizationLogin', {
-    organizationId: resp.organizations[0].organization_id,
-    organizationName: resp.organizations[0].organization_name,
-  });
 });
 
 /**
