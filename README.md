@@ -18,7 +18,7 @@ authentication. This project includes:
 #### 1. Clone the repository.
 
 ```shell
-git clone git@github.com:stytchauth/stytch-node-b2b-magic-links.git
+git clone git@github.com:stytchauth/stytch-b2b-node-quickstart.git
 ```
 
 #### 2. Populate environment variables.
