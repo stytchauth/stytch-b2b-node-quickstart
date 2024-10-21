@@ -5,6 +5,7 @@ authentication. This project includes:
 
 - Email Magic Links
 - Sessions
+- Google OAuth
 
 ## Setup
 
@@ -45,7 +46,7 @@ npm run server
 
 ## Next steps
 
-This example app showcases a small portion of what you can accomplish with Stytch. Next, explore adding additional login methods, such as [OAuth](https://stytch.com/docs/b2b/guides/oauth/initial-setup) or [SSO](https://stytch.com/docs/b2b/guides/sso/initial-setup).
+This example app showcases a small portion of what you can accomplish with Stytch. Next, explore adding additional login methods, such as [SSO](https://stytch.com/docs/b2b/guides/sso/initial-setup).
 
 ## Get help and join the community
 
